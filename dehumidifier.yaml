@@ -1,0 +1,122 @@
+substitutions:
+  name: dehumidifier-prototype
+  friendly_name: Dehumidifier POE
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+
+logger:
+  # DEBUG so UART hex frames print. Console UART off so it can't
+  # collide with the bus we're sniffing (logs go out over WiFi/API).
+  level: DEBUG
+  baud_rate: 0
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: "fallback password"
+
+captive_portal:
+
+# =============================================================================
+# DUAL-RX DIAGNOSTIC BUILD — listening on U0RXD + U0TXD (chip's standard UART)
+# -----------------------------------------------------------------------------
+# Goal: figure out which of the two data wires on the 4-pin live panel port is
+# mainboard-TX (telemetry, talks continuously) vs panel-TX (button events only).
+#
+# Physical wires are on the board pins labeled RX/TX, which are GPIO44 (U0RXD)
+# and GPIO43 (U0TXD) respectively. Console logger is on USB-JTAG (baud_rate: 0
+# above) so these UART0 pins are free for our use.
+#
+# Bench wiring (BOTH lines tapped, ESP NEVER drives the bus in this build):
+#   panel-port data1   --[~4.7kΩ series R]-->  ESP GPIO44 / "RX"  (logged as dispA)
+#   panel-port data2   --[~4.7kΩ series R]-->  ESP GPIO43 / "TX"  (logged as dispB)
+#   panel-port GND     ----------------------> ESP GND
+#   panel-port 5V      ----------------------> ESP 5V (powering DevKit)
+#
+# NOTE: GPIO43 is also the ROM bootloader's TX. For ~200 ms after reset,
+# the ROM will drive GPIO43 with 115200-baud boot text — i.e. a brief
+# burst onto whichever data line GPIO43 is tapped to. Not destructive,
+# but means a power-cycle of the ESP will spit a few bytes onto the bus.
+#
+# Expected outcome:
+#   dispA prints continuous frames → GPIO44 wire = mainboard TX (telemetry)
+#   dispB prints continuous frames → GPIO43 wire = mainboard TX (telemetry)
+#   both silent on idle, one fires on button press → that one is panel TX
+#   both silent forever            → baud is wrong, try 2400 / 4800 / 19200
+# =============================================================================
+
+uart:
+  - id: disp_uart_a
+    rx_pin: GPIO44         # U0RXD — board-labeled "RX"
+    baud_rate: 9600        # FIRST GUESS; iterate 2400/4800/19200 if silent
+    stop_bits: 1
+    parity: NONE
+    debug:
+      direction: RX
+      dummy_receiver: true   # pull bytes from buffer without another consumer
+      after:
+        timeout: 50ms        # frame boundary = 50ms of bus quiet
+      sequence:
+        - lambda: |-
+            std::string s;
+            char buf[4];
+            for (auto b : bytes) { snprintf(buf, sizeof(buf), "%02X ", b); s += buf; }
+            ESP_LOGD("dispA", "%uB: %s", (unsigned)bytes.size(), s.c_str());
+
+  - id: disp_uart_b
+    rx_pin: GPIO43         # U0TXD — board-labeled "TX", configured as RX here
+    baud_rate: 9600
+    stop_bits: 1
+    parity: NONE
+    debug:
+      direction: RX
+      dummy_receiver: true
+      after:
+        timeout: 50ms
+      sequence:
+        - lambda: |-
+            std::string s;
+            char buf[4];
+            for (auto b : bytes) { snprintf(buf, sizeof(buf), "%02X ", b); s += buf; }
+            ESP_LOGD("dispB", "%uB: %s", (unsigned)bytes.size(), s.c_str());
+
+  # === 6-pin Tuya WiFi-module header — pin 1 (active TX from mainboard) ===
+  # Separate UART channel confirmed via continuity test 2026-06-06.
+  # Tapped to GPIO15 via series R. Listening at 9600 first (panel's baud);
+  # if garbage / silent, try 115200 (Tuya default).
+  - id: tuya_uart
+    rx_pin: GPIO1           # moved from GPIO15 (better physical access)
+    baud_rate: 19200        # 2x panel rate — common ODM choice
+    stop_bits: 1
+    parity: NONE
+    debug:
+      direction: RX
+      dummy_receiver: true
+      after:
+        timeout: 50ms
+      sequence:
+        - lambda: |-
+            std::string s;
+            char buf[4];
+            for (auto b : bytes) { snprintf(buf, sizeof(buf), "%02X ", b); s += buf; }
+            ESP_LOGD("tuya", "%uB: %s", (unsigned)bytes.size(), s.c_str());
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time

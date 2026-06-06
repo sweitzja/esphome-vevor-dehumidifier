@@ -1,0 +1,137 @@
+substitutions:
+  name: dehumidifier-c3
+  friendly_name: Dehumidifier
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework:
+    type: esp-idf
+
+# External component lives in this repo's components/ directory.
+external_components:
+  - source:
+      type: local
+      path: components
+
+logger:
+  level: DEBUG
+  # Console UART off so GPIO20/21 stay free for the bus interface.
+  # Logs go over USB-JTAG + the ESPHome WiFi API.
+  baud_rate: 0
+
+api:
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: "fallback password"
+
+captive_portal:
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+# =============================================================================
+# Panel UART — inline-board with 10k/20k divider on mainboard-TX wire
+# =============================================================================
+# Current hardware (rev 1):
+#   - 74HCT1G125 Y pin LIFTED → ESP can't transmit; safe single-direction read
+#   - Divider on mainboard→panel wire feeds GPIO20
+#   - GPIO21 still routed to 74HCT input A but inert (Y disconnected)
+#
+# This YAML is READ-ONLY. Future board rev with two dividers (+ Y reconnected
+# with OE# on a GPIO) will add a second uart instance for panel-side traffic
+# and Modbus master TX. See the README for the roadmap.
+# =============================================================================
+
+uart:
+  - id: bus_uart
+    rx_pin: GPIO20
+    tx_pin: GPIO21        # left configured for future TX; harmless since 74HCT Y is lifted
+    baud_rate: 9600
+    stop_bits: 1
+    parity: NONE
+    rx_buffer_size: 256
+
+vevor_dehumidifier:
+  id: dehumidifier
+  uart_id: bus_uart
+
+sensor:
+  - platform: vevor_dehumidifier
+    target_humidity:
+      name: "Target Humidity"
+    current_humidity:
+      name: "Current Humidity"
+    ambient_temperature:
+      name: "Ambient Temperature"
+    coil_temperature:
+      name: "Coil Temperature"
+    status_word:
+      name: "Status Word"
+    error_word:
+      name: "Error Word"
+    bus_polls_per_minute:
+      name: "Bus Polls Per Minute"
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+    entity_category: diagnostic
+
+binary_sensor:
+  - platform: vevor_dehumidifier
+    power:
+      name: "Power"
+    compressor_running:
+      name: "Compressor Running"
+    compressor_allowed:
+      name: "Compressor Allowed"
+    calling_for_cooling:
+      name: "Calling For Cooling"
+    lockout_safety:
+      name: "Safety Lockout"
+    flood:
+      name: "Flood"
+    alarm_latched:
+      name: "Latched Alarm"
+    hum_sensor_fault:
+      name: "Humidity Sensor Fault"
+    coil_sensor_fault:
+      name: "Coil Sensor Fault"
+    panel_present:
+      name: "Panel Present"
+
+text_sensor:
+  - platform: vevor_dehumidifier
+    mode:
+      name: "Mode"
+    error_code:
+      name: "Error Code"
+    status:
+      name: "Status"
+
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+      entity_category: diagnostic
+
+button:
+  - platform: safe_mode
+    name: "Safe Mode Reboot"
+    entity_category: diagnostic
