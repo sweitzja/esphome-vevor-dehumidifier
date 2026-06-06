@@ -181,21 +181,27 @@ void VevorDehumidifier::publish_all_() {
 #endif
 
 #ifdef USE_BINARY_SENSOR
-  const bool power     = (status_word_ & S6_BIT_POWER) != 0;
-  const bool running   = (status_word_ & S6_BIT_COMP_RUNNING) != 0;
-  const bool allowed   = (status_word_ & S6_BIT_COMP_ALLOWED) != 0;
-  const bool satisfied = (status_word_ & S6_BIT_DEMAND_SAT) != 0;
-  const bool calling   = !satisfied;
-  const bool flood     = (status_word_ & S6_BIT_FLOOD) != 0;
-  const bool latched   = (status_word_ & S6_BIT_LATCHED_ALARM) != 0;
-  const bool hum_fault = (error_word_ & S7_HUM_SIDE_MASK) != 0;
+  const bool power      = (status_word_ & S6_BIT_POWER) != 0;
+  const bool running    = (status_word_ & S6_BIT_COMP_RUNNING) != 0;
+  const bool allowed    = (status_word_ & S6_BIT_COMP_ALLOWED) != 0;
+  const bool demand_sat = (status_word_ & S6_BIT_DEMAND_SAT) != 0;
+  const bool flood      = (status_word_ & S6_BIT_FLOOD) != 0;
+  const bool latched    = (status_word_ & S6_BIT_LATCHED_ALARM) != 0;
+  const bool hum_fault  = (error_word_ & S7_HUM_SIDE_MASK) != 0;
   const bool coil_fault = (error_word_ & S7_COIL_SENSOR_FAULT) != 0;
+
+  // Derived "the unit is trying to cool" states are only meaningful when
+  // the unit is logically powered on. When power = OFF, all of these should
+  // report FALSE — the unit isn't trying to do anything, so it can't be
+  // "calling for cooling" or "in a safety lockout."
+  const bool calling        = power && !demand_sat;
+  const bool lockout_safety = power && !allowed;
 
   if (power_bs_)              power_bs_->publish_state(power);
   if (compressor_running_bs_) compressor_running_bs_->publish_state(running);
   if (compressor_allowed_bs_) compressor_allowed_bs_->publish_state(allowed);
   if (calling_for_cooling_bs_) calling_for_cooling_bs_->publish_state(calling);
-  if (lockout_safety_bs_)     lockout_safety_bs_->publish_state(!allowed);  // safety inhibit
+  if (lockout_safety_bs_)     lockout_safety_bs_->publish_state(lockout_safety);
   if (flood_bs_)              flood_bs_->publish_state(flood);
   if (alarm_latched_bs_)      alarm_latched_bs_->publish_state(latched);
   if (hum_sensor_fault_bs_)   hum_sensor_fault_bs_->publish_state(hum_fault);
