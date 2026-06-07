@@ -217,10 +217,10 @@ void VevorDehumidifier::publish_all_() {
 
 std::string VevorDehumidifier::decode_mode_str_() const {
   const uint16_t m = status_word_ & S6_MODE_MASK;
-  if (m & S6_MODE_SLEEP)      return "sleep";
-  if (m & S6_MODE_CONTINUOUS) return "continuous";
-  if (m & S6_MODE_AUTO)       return "auto";
-  return "unknown";
+  if (m & S6_MODE_SLEEP)      return "Sleep";
+  if (m & S6_MODE_CONTINUOUS) return "Continuous";
+  if (m & S6_MODE_AUTO)       return "Auto";
+  return "Unknown";
 }
 
 std::string VevorDehumidifier::decode_error_code_str_() const {
@@ -252,15 +252,15 @@ std::string VevorDehumidifier::decode_status_str_() const {
   const bool flood     = (status_word_ & S6_BIT_FLOOD) != 0;
   const bool latched   = (status_word_ & S6_BIT_LATCHED_ALARM) != 0;
 
-  if (!power)            return "off";
-  if (latched)           return "fault (latched)";
+  if (!power)            return "Off";
+  if (latched)           return "Fault (latched)";
   const std::string err = this->decode_error_code_str_();
-  if (!err.empty())      return std::string("fault: ") + err;
-  if (flood)             return "flood";
-  if (!allowed)          return "inhibit";
-  if (running)           return "running";
-  if (!satisfied)        return "lockout";  // calling but not running, no safety inhibit
-  return "idle";
+  if (!err.empty())      return std::string("Fault: ") + err;
+  if (flood)             return "Flood";
+  if (!allowed)          return "Inhibit";
+  if (running)           return "Running";
+  if (!satisfied)        return "Lockout";  // calling but not running, no safety inhibit
+  return "Idle";
 }
 
 }  // namespace vevor_dehumidifier
